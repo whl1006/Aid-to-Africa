@@ -1,0 +1,418 @@
+---
+title: 'Mid-term Project -- Aiding Africa'
+author: "Shu Su & Hanlin Wang"
+date: "5/12/2018"
+output: html_document
+---
+
+
+```{r echo = FALSE}
+# Course: BUAN 5260
+# Title: Mid-term Project--Aiding Africa
+# Purpose: Test different scenario to distribute aids to African cities
+# Date: May 12, 2018
+# Author: Shu Su & Hanlin Wang
+```
+```{r include = FALSE, warning = FALSE, message = FALSE}
+if(is.null(sessionInfo()$otherPkgs) == FALSE)lapply(
+  paste("package:", names(sessionInfo()$otherPkgs), sep=""), 
+  detach, character.only = TRUE, unload = TRUE)
+
+# Clear environment
+rm(list = ls(all = TRUE)) 
+
+# Load packages
+library(igraph)
+library(lpSolveAPI)
+```
+
+**Aiding Africa Project Introduction**
+-------------------------------------
+
+The American Red Cross and the International Federation of Red Cross(IFRC) have decided to proactively develop aid disbursement plans for Africa. The raw data in the tables includes the capacity and speed of transportations, African destinations, city transport pairs, transport modes, distances and cost, aid requirements, air and truck restrictions. After drawing a "networking map" showing the different routes workers and supplies, we develop three possible plans under different scenarios.
+ 
+ 
+
+**Networking Map of Transportation Routes**
+------------------------------------------
+```{r include = FALSE}
+#Import raw data from CSV
+raw_table <- read.csv("5260_S18_Aiding_Africa_Data.csv",header = TRUE,sep=",",stringsAsFactors=FALSE)
+
+#Create Transportation table from raw data
+Transportation <- raw_table[c(-1,-5:-31),1:3]
+colnames(Transportation) <- c("Type","Capacity","Speed")
+
+#Create Dist_time table from raw data
+Dist_time <- raw_table[-1,8:12]
+colnames(Dist_time) <- c("From","To","Type","Distance","Cost")
+Dist_time[,4] <- as.numeric(Dist_time[,4])
+Dist_time[,5] <- as.numeric(Dist_time[,5])
+Dist_time[,"Speed"] <- NA
+for (i in 1:nrow(Dist_time)){
+  if (Dist_time[i,"Type"] == Transportation[1,1]){
+    Dist_time[i,"Speed"] = as.numeric(Transportation[1,3])
+    }
+  else if (Dist_time[i,"Type"] == Transportation[2,1]){
+    Dist_time[i,"Speed"] = as.numeric(Transportation[2,3])
+    } 
+  else Dist_time[i,"Speed"] = as.numeric(Transportation[2,3])
+}
+Dist_time[,"Time"] =Dist_time$Distance/Dist_time$Speed
+Dist_time[,"Label1"] = c(rep(1,6),rep(2,6),rep(3:8,3))
+Dist_time[,"Label2"] = c(rep(3:8,2),rep(9,6),rep(10,6),rep(11,6))
+  
+```
+
+```{r echo = FALSE}
+# Data matrix, could also import data file
+Aid <- as.matrix(Dist_time[,c("Label1","Label2","Cost","Type","Time")]) 
+
+# Make graph by setting 11 nodes/vertices, edges from nodes/vertices and distances from data matrix
+g <- add_edges(make_empty_graph(n = 11, directed = TRUE), 
+               t(Aid[, 1:2])) %>%
+# Set vertice/node names 
+  set_vertex_attr("name", value = c("New York","Jacksonville","Zambia","Gabon","Kenya","Sudan
+","Angola","Senegal","Niger","D.R. Congo","Chad")) 
+
+# Set coordinates so looks similar to book diagram
+  ## This is just for visualization, but could include it in data file
+g$layout <- matrix(c(-25, -50,  20, 20, 20, 20,20,20,65, 65,   65,
+                     50, -15, 70, 54, 28, 2, -24, -40, 100, 15, -70), nc = 2)
+E(g)$color <- as.factor(Dist_time$Type)
+# Show network graph
+plot(g,edge.arrow.size = 0.5,vertex.color = "grey",vertex.frame.color = "white", vertex.size = 10,vertex.label.cex = 0.8,vertex.label.dist = 1, vertex.label.font = 3, edge.curved = 0,edge.width = 1.5,main ="Routes to reach African cities from U.S.")
+legend('bottomleft',legend=levels(as.factor(Dist_time$Type)),col = c("gold","blue","green"),bty ="n", lty = 1,title = "Line colors")
+```
+
+This graph illustrates the possible routes to reach each nine African cities from two American cities. There are three types of transportation. Gold lines are Airplane routes, blue lines are Shipping routes and green lines are Truck routes. Starting from New York or Jacksonville, we have six transhipping countries: *Zambia, Gabon, Kenya, Sudan, Angola and Senegal*. Aids are distributed to the three strategic countries: *Niger, D.R.Congo and Chad* from the six transhipping countries.
+
+**Plan 1: Shortest Path to Reach Each African Cities**
+------------------------------------------
+
+```{r include = FALSE}
+# Set up model
+Shortpath <- make.lp(0, 12)
+
+# Add Constraints
+set.objfn(Shortpath, as.vector(Dist_time$Time[1:12]))
+add.constraint(Shortpath, c(1,1,1,1,1,1,0,0,0,0,0,0),"<=",6)
+add.constraint(Shortpath, c(0,0,0,0,0,0,1,1,1,1,1,1),"<=",6)
+add.constraint(Shortpath, c(1,0,0,0,0,0,1,0,0,0,0,0),"=",1)
+add.constraint(Shortpath, c(0,1,0,0,0,0,0,1,0,0,0,0),"=",1)
+add.constraint(Shortpath, c(0,0,1,0,0,0,0,0,1,0,0,0),"=",1)
+add.constraint(Shortpath, c(0,0,0,1,0,0,0,0,0,1,0,0),"=",1)
+add.constraint(Shortpath, c(0,0,0,0,1,0,0,0,0,0,1,0),"=",1)
+add.constraint(Shortpath, c(0,0,0,0,0,1,0,0,0,0,0,1),"=",1)
+dimnames(Shortpath) <- list(c("NY", "JSV", "Zambia","Gabon", "Kenya", "Sudan","Angola","Senegal"),  c("NY_Za","NY_Ga","NY_Ke","NY_Su","NY_An","NY_Se","JSV_Za","JSV_Ga","JSV_Ke","JSV_Su","JSV_An","JSV_Se"))
+
+# Solve model
+## 0 Returned indicates model was successfully solved 
+solve(Shortpath)
+```
+**Sensitivity table of routes from two American cities to six African transhipping countries**\n
+```{r echo = FALSE}
+# Have to re-enter obj fn to get Sens Ana table since cannot pull from model
+obj_fn <- as.vector(Dist_time$Time[1:12])
+ps <- get.primal.solution(Shortpath)
+
+# Get sensitivity analysis
+obj_sa <- get.sensitivity.obj(Shortpath)
+rhs_sa <- get.sensitivity.rhs(Shortpath)
+
+n <- length(get.variables(Shortpath))
+m <- length(get.constr.type(Shortpath))
+ov <- paste0("Objective Value = ", max(ps[10:21]*as.numeric(Dist_time$Time[1:12])))
+
+sa_tab <- rbind(ps[2:(n + m + 1)], 
+                c(round(rhs_sa$duals[1:m], 2), obj_fn),
+                round(c(rhs_sa$dualsfrom[1:m],obj_sa$objfrom), 2),
+                round(c(rhs_sa$dualstill[1:m],obj_sa$objtill), 2)) 
+colnames(sa_tab) <- c(rownames(Shortpath), colnames(Shortpath))
+rownames(sa_tab) <- c("solution", "duals/coef", "Sens From", "Sens Till")      
+
+# Objective value and sensitivity analysis table
+ov
+as.table(sa_tab)
+```
+
+**Sensitivity table of routes from six African transhipping countries to three strategic countries**\n
+```{r include = FALSE}
+# Set up model
+Shortpath2 <- make.lp(0, 18)
+
+# Add Constraints
+set.objfn(Shortpath2, as.vector(Dist_time$Time[13:30]))
+add.constraint(Shortpath2, c(1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0),"<=",1)
+add.constraint(Shortpath2, c(0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0),"<=",1)
+add.constraint(Shortpath2, c(0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0),"<=",1)
+add.constraint(Shortpath2, c(0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0),"<=",1)
+add.constraint(Shortpath2, c(0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0),"<=",1)
+add.constraint(Shortpath2, c(0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1),"<=",1)
+add.constraint(Shortpath2, c(1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0),"=",1)
+add.constraint(Shortpath2, c(0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0),"=",1)
+add.constraint(Shortpath2, c(0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1),"=",1)
+dimnames(Shortpath2) <- list(c("Zambia","Gabon","Kenya","Sudan","Angola","Senegal","Niger","D.R.Congo","Chad"),                          c("Za_Ni","Ga_Ni","Ke_Ni","Su_Ni","An_Ni","Se_Ni","Za_Co","Ga_Co","Ke_Co","Su_Co","An_Co","Se_Co","Za_Ch","Ga_Ch","Ke_Ch","Su_Ch","An_Ch","Se_Ch"))
+
+# Solve model
+## 0 Returned indicates model was successfully solved 
+solve(Shortpath2)
+```
+
+```{r echo = FALSE}
+# Have to re-enter obj fn to get Sens Ana table since cannot pull from model
+obj_fn <- as.vector(Dist_time$Time[13:30])
+ps2 <- get.primal.solution(Shortpath2)
+
+# Get sensitivity analysis
+obj_sa <- get.sensitivity.obj(Shortpath2)
+rhs_sa <- get.sensitivity.rhs(Shortpath2)
+
+n <- length(get.variables(Shortpath2))
+m <- length(get.constr.type(Shortpath2))
+ov <- paste0("Objective Value = ", max(ps2[11:28]*Dist_time$Time[13:30]))
+
+sa_tab <- rbind(ps2[2:(n + m + 1)], 
+                c(round(rhs_sa$duals[1:m], 2), obj_fn),
+                round(c(rhs_sa$dualsfrom[1:m],obj_sa$objfrom), 2),
+                round(c(rhs_sa$dualstill[1:m],obj_sa$objtill), 2)) 
+colnames(sa_tab) <- c(rownames(Shortpath2), colnames(Shortpath2))
+rownames(sa_tab) <- c("solution", "duals/coef", "Sens From", "Sens Till")      
+
+# Objective value and sensitivity analysis table
+ov
+as.table(sa_tab)
+```
+
+```{r echo = FALSE}
+# Set coordinates so looks similar to book diagram
+  ## This is just for visualization, but could include it in data file
+shortest <- subgraph.edges(g,c(2,4,5,7,9,12,15,19,28),delete.vertices = FALSE)
+E(shortest)$label <- round(as.numeric(Dist_time$Time[c(2,4,5,7,9,12,15,19,28)]),2)
+
+# Show network graph
+plot(shortest,edge.arrow.size = 0.5,vertex.color = "grey",vertex.frame.color = "white", vertex.size = 10,vertex.label.cex = 0.8,vertex.label.dist = 1, vertex.label.font = 3, edge.curved = 0.2,edge.width = 1.5,main =paste("Shortest Route to reach African cities from U.S.\nLeast time taken is",round(max(ps[10:21]*as.numeric(Dist_time$Time[1:12])),2),"hours"), sub="Numbers are time consumed in hour of each route")
+legend('bottomleft',legend=levels(as.factor(Dist_time$Type)),col = c("gold","blue","green"),bty ="n", lty = 1,title = "Line colors")
+```
+
+**Finding 1**\n
+
+The first plan is to find out the quickest route to move workers and supplies from the United States to each of the nine IFRC cities, disregarding cost. We separated the whole map into two parts, from U.S. to African ports and from African ports to three strategic cities for model building issue. The result shows that the fastest route is to distribute aids from New York to Gabon Sudan and Angola, from Jacksonville to Zambia, Kenya and Senegal for redistribution. Then aids goes from Zambia to Congo, from Sudan to Chad, and Kenya to Niger. From the network map above we can see, assuming all the distribution work from U.S. starts at the same time, it takes **186.46** hours to reach all African port cities. To reach Niger, it takes *17.6+6.31 = 23.91* hours, while D.R.Congo needs *19.86+1.86=21.72* hours and Chad needs *17.6+3=20.6* hours. None of these cities needs a longer than **186.46** so the total time needed to reach all nine African cities will be **186.46**. \n
+
+From the networking map we can see that for all the routes IFRC take to reach the African cities in shortest time, the route between Jacksonville and Kenya takes the longest time of **186.46** hours, making it the most significant time bottleneck that the IFRC should work to reduce.
+
+**Plan 2: Minimum cost route to meet Aid requirements of each African cities**
+------------------------------------------
+```{r include = FALSE}
+#Niger is air only, Truck to Chad is restricted at 840, two of the airplane routes to chad are restricted at 200 
+Restriction <- rep(100000,time = length(Dist_time$To))
+Restriction[which(Dist_time$To == "Niamey, Niger" & Dist_time$Type == "Truck")] <- 0
+Restriction[which(Dist_time$To == "Ndjamena, Chad" & Dist_time$Type == "Truck")] <- 840
+Restriction[which(Dist_time$To == "Ndjamena, Chad" & Dist_time$From == "Lusaka, Zambia" & Dist_time$Type == "Airplane")] <- 200
+Restriction[which(Dist_time$To == "Ndjamena, Chad" & Dist_time$From == "Khartoum, Sudan" & Dist_time$Type == "Airplane")] <- 200
+
+#Create Requirements table from raw data,add NY and JSV requirements at the end
+Requirements <- raw_table[c(-1,-11:-31),14:15]
+colnames(Requirements) <- c("City","Requirements")
+Requirements <- rbind(Requirements, c("New York, NY",500000))
+Requirements <- rbind(Requirements, c("Jacksonville, FL",500000))
+Requirements$Requirements <- as.numeric(Requirements$Requirements)
+
+#Create airplane, ship, truck transportation cost variable for future use
+Air <- as.numeric(Transportation[1,2])
+Sea <- as.numeric(Transportation[2,2])
+Ground <- as.numeric(Transportation[3,2])
+
+#Create vector of transportation type information among US, port cities and strategy cities 
+US_to_Ports_Cap <- c(Air,Sea,Air,Air,Sea,Sea)
+Ports_to_Cities_Cap <- c(Air,Ground,Air,Air,Ground,Ground)
+
+
+#Create matrixs for setting up model
+NY_count <- nrow(Dist_time[which(Dist_time$From == "New York, NY"),])
+JSV_count <- nrow(Dist_time[which(Dist_time$From == "Jacksonville, FL"),])
+Mid_count <- length(unique(Dist_time$From[-(1:(NY_count+JSV_count))]))
+Niger_count <- nrow(Dist_time[which(Dist_time$To == "Niamey, Niger"),])
+Congo_count <- nrow(Dist_time[which(Dist_time$To == "Kosongo, D.R. Congo"),])
+Chad_count <- nrow(Dist_time[which(Dist_time$To == "Ndjamena, Chad"),])
+Con_Mat1 <- diag(1,NY_count,Mid_count)
+Con_Mat2 <- diag(1,JSV_count,Mid_count)
+Con_Mat3 <- diag(-1,Niger_count,Mid_count)
+Con_Mat4 <- diag(-1,Congo_count,Mid_count)
+Con_Mat5 <- diag(-1,Chad_count,Mid_count)
+Con_Mat <- cbind(Con_Mat1,Con_Mat2,Con_Mat3,Con_Mat4,Con_Mat5)
+rownames(Con_Mat) <- c("Zambia","Gabon","Kenya","Sudan","Angola","Senegal")
+UCon_Mat <- diag(1,NY_count+JSV_count+Niger_count+Congo_count+Chad_count,Mid_count*5)
+```
+
+```{r include = FALSE}
+# Set up model
+Mincost <- make.lp(0, 30)
+
+# Add Constraints
+set.objfn(Mincost, as.vector(Dist_time$Cost))
+add.constraint(Mincost,c(US_to_Ports_Cap,rep(0,times=24)),"<=",Requirements[10,2])
+add.constraint(Mincost,c(rep(0,times=6),US_to_Ports_Cap,rep(0,times=18)),"<=",Requirements[11,2])
+add.constraint(Mincost,c(rep(0,times=12),Ports_to_Cities_Cap,rep(0,times=12)),">=",Requirements[7,2])
+add.constraint(Mincost,c(rep(0,times=18),Ports_to_Cities_Cap,rep(0,times=6)),">=",Requirements[8,2])
+add.constraint(Mincost,c(rep(0,times=24),Ports_to_Cities_Cap),">=",Requirements[9,2])
+add.constraint(Mincost,Con_Mat["Zambia",]*Air,">=",Requirements[5,2])
+add.constraint(Mincost,c(Con_Mat["Gabon",1:12]*Sea,Con_Mat["Gabon",13:30]*Ground),">=",Requirements[2,2])
+add.constraint(Mincost,Con_Mat["Kenya",]*Air,">=",Requirements[6,2])
+add.constraint(Mincost,Con_Mat["Sudan",]*Air,">=",Requirements[4,2])
+add.constraint(Mincost,c(Con_Mat["Angola",1:12]*Sea,Con_Mat["Angola",13:30]*Ground),">=",Requirements[3,2])
+add.constraint(Mincost,c(Con_Mat["Senegal",1:12]*Sea,Con_Mat["Senegal",13:30]*Ground),">=",Requirements[1,2])
+for (i in(1:30)){
+  add.constraint(Mincost,UCon_Mat[i,],"<=",Restriction[i])
+  }
+dimnames(Mincost) <- list(c("NY","JSV","Niger","D.R.Congo","Chad","Zambia","Gabon","Kenya","Sudan", "Angola","Senegal","uNY_Za","uNY_Ga","uNY_Ke","uNY_Su","uNY_An","uNY_Se","uJSV_Za","uJSV_Ga","uJSV_Ke","uJSV_Su","uJSV_An","uJSV_Se","uZa_Ni","uGa_Ni","uKe_Ni","uSu_Ni","uAn_Ni","uSe_Ni","uZa_Co","uGa_Co","uKe_Co","uSu_Co","uAn_Co","uSe_Co","uZa_Ch","uGa_Ch","uKe_Ch","uSu_Ch","uAn_Ch","uSe_Ch"),                          c("NY_Za","NY_Ga","NY_Ke","NY_Su","NY_An","NY_Se","JSV_Za","JSV_Ga","JSV_Ke","JSV_Su","JSV_An","JSV_Se","Za_Ni","Ga_Ni","Ke_Ni","Su_Ni","An_Ni","Se_Ni","Za_Co", "Ga_Co","Ke_Co","Su_Co","An_Co","Se_Co","Za_Ch","Ga_Ch","Ke_Ch","Su_Ch","An_Ch","Se_Ch"))
+
+# Solve model
+## 0 Returned indicates model was successfully solved 
+solve(Mincost)
+```
+
+```{r echo = FALSE}
+# Have to re-enter obj fn to get Sens Ana table since cannot pull from model
+obj_fn <- as.vector(Dist_time$Cost)
+ps <- get.primal.solution(Mincost)
+
+# Get sensitivity analysis
+obj_sa <- get.sensitivity.obj(Mincost)
+rhs_sa <- get.sensitivity.rhs(Mincost)
+
+n <- length(get.variables(Mincost))
+m <- length(get.constr.type(Mincost))
+ov <- paste0("Objective Value = ", ps[1])
+
+sa_tab <- rbind(ps[2:(n + m + 1)], 
+                c(round(rhs_sa$duals[1:m], 2), obj_fn),
+                round(c(rhs_sa$dualsfrom[1:m],obj_sa$objfrom), 2),
+                round(c(rhs_sa$dualstill[1:m],obj_sa$objtill), 2)) 
+colnames(sa_tab) <- c(rownames(Mincost), colnames(Mincost))
+rownames(sa_tab) <- c("solution", "duals/coef", "Sens From", "Sens Till")      
+
+# Objective value and sensitivity analysis table
+ov
+sa_tab <- as.table(sa_tab)
+sa_tab
+```
+
+```{r echo = FALSE}
+# Set coordinates so looks similar to book diagram
+  ## This is just for visualization, but could include it in data file
+Minimum <- subgraph.edges(g,c(1,2,5,6,7,9,10,16,20,27,28),delete.vertices = FALSE)
+inter <- sa_tab["solution",12:41]
+E(Minimum)$label <- round(as.numeric(inter[inter > 0]))
+
+# Show network graph
+plot(Minimum,edge.arrow.size = 0.5,vertex.color = "grey",vertex.frame.color = "white", vertex.size = 10,vertex.label.cex = 0.8,vertex.label.dist = 1, vertex.label.font = 3, edge.curved = 0.2,edge.width = 1.5,main =paste("Minimum cost to meet African cities aid requirements \nMinimum cost is $",round(ps[1]/1000,2),"M"), sub="Numbers are units of transportations needed of each route")
+legend('bottomleft',legend=levels(as.factor(Dist_time$Type)),col = c("gold","blue","green"),bty ="n", lty = 1,title = "Line colors")
+```
+
+**Finding 2**\n
+
+The second plan is to satisfy each African city's aid requirements at minimize cost. The result shows that the minimum cost for workers and supplies to reach each city is **$310,861,000**. And the best route is to send **267** airplanes from New York to Zambia, **1167**, **542**, **209** ships from New York to Gabon, Angola and Senegal, respectively. Also, **734**, **1134**,**1467** airplanes will take off from Jacksonville and landed in Zambia, Kenya, and Senegal, respectively. From the ports to the inner land cities, Sudan will send **667** airplanes to Niger, Gabon will use **10170** Trucks to deliver aids to D.R.Congo, and Chad will have **334 and 201** airplanes from Kenya and Sudan, respectively. These numbers of transportation units are rounded up for realistic concerns that we can not have 0.1 or 0.2 airplanes for transportation.\n
+
+In this scenario, Sudan to Chad is the significant bottlenecks in the system as the dual value of the route capacity from Sudan to Chad is **-10**, which is the lowest among all routes. That is to say, increasing the capacity in this route by one unit will decrease the cost by **$10** through redesign of the routes. This cost reduction is effective unless the capacity of this route reaches **533**.This is the largest cost reduce IFRC can have through increasing one unit of capacity.\n 
+
+Another way to think about this is how to reduce cost within this allocation strategy. Among all the routes that's chosen in our minimum cost plan with a positive lower sensitivity bound, we can see that the route from Jacksonville to Kenya has the highest value of *(Cost-lower sensitivity bound) x transportation units* of **$11330**, meaning that the biggest reduction on cost IFRC can have is  **$11330** by reducing the cost of the route JSV-KE from **$61** to **$51**, without changing the route design.
+
+**Plan 3: Maximum cargos to send to African cities**
+------------------------------------------
+```{r include = FALSE}
+#Create Plane and Truck limitation table from raw table
+Plane_limit <- raw_table[c(-1,-17:-31),17:19]
+colnames(Plane_limit) <- c("From","To","Limit")
+Truck_limit <- raw_table[c(-1,-8:-31),21:23]
+colnames(Truck_limit) <- c("From","To","Limit")
+
+#Add restriction column to Dist_time table to reflect transportation limitation among each city
+Dist_time$Restriction <- NA
+for (i in (1:30)){
+  if (Dist_time$Type[i] == "Airplane"){
+  Dist_time$Restriction[i] <- as.numeric(Plane_limit[which(Plane_limit$From == Dist_time$From[i] & Plane_limit$To == Dist_time$To[i]),"Limit"])}
+  else if (Dist_time$Type[i] == "Truck"){
+    if (is.element(Dist_time$To[i],Truck_limit$To)){
+  Dist_time$Restriction[i] <- as.numeric(Truck_limit[which(Truck_limit$From == Dist_time$From[i] & Truck_limit$To == Dist_time$To[i]),"Limit"])}
+  else {Dist_time$Restriction[i] <- 0}}
+  else {Dist_time$Restriction[i] <- 9999}
+}
+```
+
+```{r include = FALSE}
+# Set up model
+Maxflow <- make.lp(0, 30)
+lp.control(Maxflow, sense = "max")
+```
+```{r include = FALSE}
+# Add Constraints
+set.objfn(Maxflow, c(rep(0,12),rep(Ports_to_Cities_Cap,3)))
+add.constraint(Maxflow,c(rep(1,NY_count)*(US_to_Ports_Cap),rep(0,JSV_count),rep(0,Niger_count),rep(0,Congo_count),rep(0,Chad_count)),"<=",Requirements[10,2])
+add.constraint(Maxflow,c(rep(0,NY_count),rep(1,JSV_count)*(US_to_Ports_Cap),rep(0,Niger_count),rep(0,Congo_count),rep(0,Chad_count)),"<=",Requirements[11,2])
+add.constraint(Maxflow,c(rep(0,NY_count),rep(0,JSV_count),rep(1,Niger_count)*(Ports_to_Cities_Cap),rep(0,Congo_count),rep(0,Chad_count)),"<=",sum(Dist_time$Restriction[13:18]*Ports_to_Cities_Cap))
+add.constraint(Maxflow,c(rep(0,NY_count),rep(0,JSV_count),rep(0,Niger_count),rep(1,Congo_count)*(Ports_to_Cities_Cap),rep(0,Chad_count)),"<=",sum(Dist_time$Restriction[19:24]*Ports_to_Cities_Cap))
+add.constraint(Maxflow,c(rep(0,NY_count),rep(0,JSV_count),rep(0,Niger_count),rep(0,Congo_count),rep(1,Chad_count)*(Ports_to_Cities_Cap)),"<=",sum(Dist_time$Restriction[25:30]*Ports_to_Cities_Cap))
+for (i in (1:6)){
+  add.constraint(Maxflow,c(Con_Mat[i,1:12]*US_to_Ports_Cap[i],Con_Mat[i,13:30]*Ports_to_Cities_Cap[i]),"=",0)
+  }
+for (i in(1:30)){
+  add.constraint(Maxflow,UCon_Mat[i,],"<=",Dist_time$Restriction[i])
+  }
+
+dimnames(Maxflow) <- list(c("NY","JSV","Niger","D.R.Congo","Chad","Zambia","Gabon","Kenya", "Sudan","Angola","Senegal","uNY_Za","uNY_Ga","uNY_Ke","uNY_Su","uNY_An","uNY_Se","uJSV_Za","uJSV_Ga","uJSV_Ke","uJSV_Su","uJSV_An","uJSV_Se","uZa_Ni","uGa_Ni","uKe_Ni","uSu_Ni","uAn_Ni","uSe_Ni","uZa_Co","uGa_Co","uKe_Co","uSu_Co","uAn_Co","uSe_Co","uZa_Ch","uGa_Ch","uKe_Ch","uSu_Ch","uAn_Ch","uSe_Ch"),                          c("NY_Za","NY_Ga","NY_Ke","NY_Su","NY_An","NY_Se","JSV_Za","JSV_Ga","JSV_Ke","JSV_Su","JSV_An","JSV_Se","Za_Ni","Ga_Ni","Ke_Ni","Su_Ni","An_Ni","Se_Ni","Za_Co","Ga_Co","Ke_Co","Su_Co","An_Co","Se_Co","Za_Ch","Ga_Ch","Ke_Ch","Su_Ch","An_Ch","Se_Ch"))
+
+# Solve model
+## 0 Returned indicates model was successfully solved 
+solve(Maxflow)
+```
+```{r echo = FALSE}
+# Have to re-enter obj fn to get Sens Ana table since cannot pull from model
+obj_fn <- c(rep(0,12),rep(Ports_to_Cities_Cap,3))
+ps <- get.primal.solution(Maxflow)
+# Get sensitivity analysis
+obj_sa <- get.sensitivity.obj(Maxflow)
+rhs_sa <- get.sensitivity.rhs(Maxflow)
+
+n <- length(get.variables(Maxflow))
+m <- length(get.constr.type(Maxflow))
+ov <- paste0("Objective Value = ", ps[1])
+
+sa_tab <- rbind(ps[2:(n + m + 1)], 
+                c(round(rhs_sa$duals[1:m], 2), obj_fn),
+                round(c(rhs_sa$dualsfrom[1:m],obj_sa$objfrom), 2),
+                round(c(rhs_sa$dualstill[1:m],obj_sa$objtill), 2)) 
+colnames(sa_tab) <- c(rownames(Maxflow), colnames(Maxflow))
+rownames(sa_tab) <- c("solution", "duals/coef", "Sens From", "Sens Till")      
+
+# Objective value and sensitivity analysis table
+ov
+as.table(sa_tab)
+```
+```{r echo = FALSE}
+maxflow <- subgraph.edges(g,c(1:7,13,16,19:24,26:30),delete.vertices= FALSE)
+
+maxflow_route <- as.data.frame(sa_tab[,which(sa_tab[1,]>0)][1,c(26:45)])
+maxflow_route[,1] <- round(maxflow_route[,1])
+E(maxflow)$label <- maxflow_route[,1]
+
+plot(maxflow,edge.arrow.size = 0.5,vertex.color = "grey",vertex.frame.color = "white", vertex.size = 10,vertex.label.cex = 0.8,vertex.label.dist = 1, vertex.label.font = 3, edge.curved = 0.2,edge.width = 1.5,main =paste("Maximum flow to reach African cities\nMaximum cargo is",round(ps[1],2),"tons"), sub="Numbers are units of transportations needed of each route")
+legend('bottomleft',legend=levels(as.factor(Dist_time$Type)),col = c("gold","blue","green"),bty ="n", lty = 1,title = "Line colors")
+```
+
+**Finding 3**\n
+
+The third plan is to maximize the total amount of cargo that reaches Africa under certain restrictions. The network map represents the routes to be chosen and units of transportation needed for each route. For example, the graph shows that to maximize cargos to be sent to the African cities, **301** airplanes are needed from New York to Zambia. In this situation, we are assuming that the six port cities are not holding any cargos because we don't have the information to estimate the maximum aids each of the six cities can hold and they serve as transhipments in this situation. We've discussed using requirements in the last setting as a proxy but intuitively it doesn't make sense. The result shows that it takes workers and supplies total of **202170** tons to reach each city with the maximum cargo numbers. With a proper and realistic setting of the storage capacity of each port cities, this result is likely to increase and the route design might be changed too.\n
+
+From the sensitivity table we can see that all the three destination cities have dual value, which means the outflow side is the binding-constraint, while the inflow side (NY and Jacksonville) is not binded. Thus the bottleneck route is on the African side. Comparing the route using airplane and truck, increasing one unit of airplane has higher value than truck since the capacity of airplane (150) is higher than truck (17.7). Thus the bottleneck route should be one of the airplane routes from airfield cities to three strategic cities. Since Jacksonville still has capacity to increase cargos sent to Zambia, Kenya and Sudan, increasing the capacity of routes from these three cities to Niger, D.R.Congo and Chad respectively should have the equal value of increasing the final maximum cargo by 150. Thus, the significant bottleneck is the 9 routes between three airfield cities and three strategic cities.
+
+**Summary**
+-------------------------------------
+
+We've tested three different scenarios to develop the route to distribute aids to nine African cities:\n
+
+The shortest time to reach each of the nine cities regardless of cost and requirements is **186.46** hours and the bottleneck IFRC can work on is to reduce time needed to travel between New York and Angola. 
+
+The minimum cost to meet requirements of each African cities is **$310.86M**, while IFRC can work on increasing capacity of route from Sudan to Chad to get largest decrease of cost of **$10/unit** with the upper bound of **533 Units**. 
+
+The maximum cargos that can reach Africa is **202170 tons**.The bottleneck that IFRC can work on to increase the cargo flow is to increase the airplane routes from transhipping cities to three strategic cities. Each unit of capacity increase of these routes will increase the final result by **150 tons**.
